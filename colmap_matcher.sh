@@ -146,7 +146,7 @@ fi
 # LightGlue Feature Matcher
 if [ "${matcher_type}" == "lightglue" ]
 then
-  pixi run -e colmap-sp python3 Baselines/colmap/lightglue_matcher.py 
+  pixi run -e lightglue python3 Baselines/colmap/lightglue_matcher.py --database ${database} --rgb_path ${rgb_path} --feature superpoint
   colmap matches_importer \
       --database_path ${database} \
       --match_list_path "${exp_folder_colmap}/matches.txt" \

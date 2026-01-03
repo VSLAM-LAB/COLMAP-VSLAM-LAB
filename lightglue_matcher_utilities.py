@@ -191,7 +191,7 @@ def lightglue_keypoints(path_to_image0, features='superpoint', rotations = [0,1,
 
     # Optional: If you want to retain other keys like 'shape' or 'image_size'
     feats_merged['image_size'] = torch.tensor([w, h], device=device).unsqueeze(0)
-    return feats_merged
+    return feats_merged , h, w
 
 def lightglue_matching(feats0, feats1, plot=False, features='superpoint', path_to_image0=None, path_to_image1=None):
     from lightglue import LightGlue, SuperPoint, SIFT

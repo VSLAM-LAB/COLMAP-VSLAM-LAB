@@ -1,21 +1,13 @@
 import sqlite3
-from utilities import lightglue_keypoints, lightglue_matching, unrotate_kps_W
+from lightglue_matcher_utilities import lightglue_keypoints, lightglue_matching, unrotate_kps_W
 import os
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
 import cv2
-import random
-
-# ==========================================
-# CONFIGURATION
-# ==========================================
-DB_PATH = "/home/alejandro/VSLAM-LAB-NEXT-ITERATION/VSLAM-LAB-Evaluation/demo/SESOKO/sskall-s01/colmap_00000/colmap_database.db"
-IMAGE_DIR = "/home/alejandro/VSLAM-LAB-NEXT-ITERATION/VSLAM-LAB-Benchmark/SESOKO/sskall-s01/rgb_0"
-FEATURE_TYPE = 'superpoint' 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-matches_file_path = os.path.join(os.path.dirname(DB_PATH), "matches.txt")
+import argparse
+from pathlib import Path
 
 # ==========================================
 # ==========================================
@@ -278,14 +270,30 @@ def plot_matches_from_db(cursor, image_id1, image_id2, image_dir):
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser()
+    
+    #DB_PATH = "/home/alejandro/VSLAM-LAB-NEXT-ITERATION/VSLAM-LAB-Evaluation/demo/SESOKO/sskall-s01/colmap_00000/colmap_database.db"
+    #IMAGE_DIR = "/home/alejandro/VSLAM-LAB-NEXT-ITERATION/VSLAM-LAB-Benchmark/SESOKO/sskall-s01/rgb_0"
+    #FEATURE_TYPE = 'superpoint' 
+    #DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+    #matches_file_path = os.path.join(os.path.dirname(DB_PATH), "matches.txt")
+
+    parser.add_argument("--database", type=Path, required=True)
+    parser.add_argument("--rgb_path", type=Path, required=True)
+    parser.add_argument("--feature", type=str, required=True)
+
+    args, _ = parser.parse_known_args()
+
+    DB_PATH = args.database
+    IMAGE_DIR = args.rgb_path
+    FEATURE_TYPE = args.feature
+    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+    matches_file_path = os.path.join(os.path.dirname(DB_PATH), "matches.txt")
+
     conn, cursor = load_colmap_db(DB_PATH)
     cursor.execute("SELECT image_id, name FROM images")
     images_info = {row[0]: row[1] for row in cursor.fetchall()}
     image_ids = sorted(images_info.keys())
-    h = 505
-    w = 607
-    # plot_matches_from_db(cursor, image_ids[0], image_ids[1], IMAGE_DIR)
-    # exit(0)
 
     clean_database(cursor)
     conn.commit() 
@@ -296,7 +304,7 @@ if __name__ == "__main__":
         fname = images_info[id]
         path = os.path.join(IMAGE_DIR, fname)
 
-        feats_dict = lightglue_keypoints(path, features='superpoint')
+        feats_dict, h, w = lightglue_keypoints(path, features='superpoint')
         
         fts[id] = feats_dict
 

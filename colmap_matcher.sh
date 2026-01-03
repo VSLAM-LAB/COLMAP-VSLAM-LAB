@@ -26,7 +26,7 @@ python3 Baselines/colmap/create_colmap_image_list.py "$rgb_csv" "$colmap_image_l
 # Create Colmap Database
 database="${exp_folder_colmap}/colmap_database.db"
 rm -rf ${database}
-colmap database_creator --database_path ${database}
+colmap database_creator --database_path ${database} 
 
 # Feature extractor
 echo "    colmap feature_extractor ..."
@@ -142,3 +142,14 @@ then
     --SequentialMatching.vocab_tree_path ${vocabulary_tree} \
     --FeatureMatching.use_gpu "${use_gpu}"
 fi
+
+# LightGlue Feature Matcher
+if [ "${matcher_type}" == "lightglue" ]
+then
+  pixi run -e colmap-sp python3 Baselines/colmap/lightglue_matcher.py 
+  colmap matches_importer \
+      --database_path ${database} \
+      --match_list_path "${exp_folder_colmap}/matches.txt" \
+      --match_type raw 
+fi
+

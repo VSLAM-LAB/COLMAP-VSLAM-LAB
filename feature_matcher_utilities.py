@@ -113,28 +113,80 @@ def extract_keypoints(path_to_image0, features='superpoint', rotations = [0,1,2,
     #     if 'oris' not in f:
     #         f['oris'] = torch.zeros(all_keypoints.shape[:-1], device=device)
 
-    return feats_merged , h, w
+    return feats_merged , feats, h, w
 
-def feature_matching(feats0, feats1, matcher = None, features='superpoint', matcher_type='lightglue'):
-    #print(f"Matching features using {matcher_type} matcher with {features} features.")
-    if matcher_type == "lightglue":
-        if matcher is None:
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            matcher = LightGlue(features=features).eval().to(device)
+def lightglue_matching(feats0, feats1, matcher = None):
+    if matcher is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        matcher = LightGlue(features='superpoint').eval().to(device)
     
-        out_k = matcher({'image0': feats0, 'image1': feats1})
-        _, _, out_k = [rbd(x) for x in [feats0, feats1, out_k]]   # remove batch dim
-        return out_k['matches'] 
+    out_k = matcher({'image0': feats0, 'image1': feats1})
+    _, _, out_k = [rbd(x) for x in [feats0, feats1, out_k]]   # remove batch dim
+    return out_k['matches'] 
 
-    if matcher_type == "brute_force":
-        desc0 = feats0['descriptors'].squeeze(0) 
-        desc1 = feats1['descriptors'].squeeze(0) 
-        dists = torch.cdist(desc0, desc1, p=2)
-        min_dist0, idx0 = dists.min(dim=1)
-        min_dist1, idx1 = dists.min(dim=0)
-        indices0 = torch.arange(len(idx0), device='cuda')
-        mutual_mask = (idx1[idx0] == indices0) 
-        matches0 = indices0[mutual_mask]
-        matches1 = idx0[mutual_mask]
-            
-        return torch.stack([matches0, matches1], dim=-1) # [N, 2]
+def feature_matching(feats0, feats1, matcher = None, exhaustive = True):
+    best_rot = 0
+    best_num_matches = 0
+    matches_tensor = None
+ 
+    # Find the best rotation alignment
+    for rot in [0,1,2,3]:
+        matches_tensor_rot = lightglue_matching(feats0[0], feats1[rot], matcher = matcher)
+        if (len(matches_tensor_rot) > best_num_matches):
+            best_num_matches = len(matches_tensor_rot)
+            best_rot = rot
+            matches_tensor = matches_tensor_rot
+
+    if matches_tensor is not None and len(matches_tensor) > 0:
+        matches_np = matches_tensor.cpu().numpy().astype(np.uint32)
+    else:
+        return None
+
+    # Adjust matches to account for rotations
+    for k in range(best_rot):
+        matches_np[:,1] += feats1[k]['keypoints'].shape[1]
+    all_matches = [matches_np]  
+
+    if not exhaustive:
+        return matches_np
+    
+    # Find the other rotation combinations
+    rots = []
+    for rot in [1, 2, 3]:
+        rot_i = best_rot + rot
+        if rot_i >=4:
+            rot_i = rot_i -4
+        rots.append(rot_i)
+
+    # Compute matches for the other rotation combinations
+    for rot_i in [1,2,3]:
+        rot_j = rots[rot_i-1]
+
+        matches_tensor_rot = lightglue_matching(feats0[rot_i], feats1[rot_j], matcher = matcher)
+        matches_np_i = matches_tensor_rot.cpu().numpy().astype(np.uint32)
+        if rot_i > 0:
+            for k in range(rot_i):
+                matches_np_i[:,0] += feats0[k]['keypoints'].shape[1]
+        if rot_j > 0:
+            for k in range(rot_j):
+                matches_np_i[:,1] += feats1[k]['keypoints'].shape[1]
+
+        all_matches.append(matches_np_i)
+        print(f"Rotation {rot_i} vs {rot_j}: {len(matches_tensor_rot)} matches")
+
+    # Stack all matches together
+    matches_stacked = (
+        np.vstack(all_matches) if len(all_matches) and all_matches[0].size else
+        np.empty((0, 2), dtype=np.uint32)
+    )
+    
+    # if best_rot > 0:
+    #     for k in range(best_rot):
+    #         print(f"Adjusting for rotation {k}")
+    #         matches_np[:,1] += feats1[k]['keypoints'].shape[1]
+
+    # return matches_np
+    return matches_stacked
+           
+
+              

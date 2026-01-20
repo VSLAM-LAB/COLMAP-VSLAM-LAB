@@ -29,7 +29,7 @@ def create_pair_id(image_id1, image_id2):
 
 def clean_database(cursor):
     """Removes existing features and matches to ensure a clean overwrite."""
-    tables = ["keypoints", "descriptors"]#, "matches"], "two_view_geometry"]
+    tables = ["keypoints", "descriptors", "matches"]#, "two_view_geometry"]
     for table in tables:
         cursor.execute(f"DELETE FROM {table};")
     print("Database cleaned (keypoints, descriptors, matches removed).")
@@ -270,90 +270,188 @@ def plot_matches_from_db(cursor, image_id1, image_id2, image_dir):
     plt.tight_layout()
     plt.show()
 
+def load_sift_keypoints(cursor):
+    cursor.execute("""
+        SELECT image_id, rows, cols, data
+        FROM keypoints
+    """)
+
+    keypoints_dict = {}
+
+    for image_id, rows, cols, data in cursor.fetchall():
+        kpts = np.frombuffer(data, dtype=np.float32)
+        kpts = kpts.reshape((rows, cols))
+        keypoints_dict[image_id] = kpts
+
+    return keypoints_dict
+
+def load_sift_matches(cursor):
+    sift_matches = {}
+    cursor.execute("SELECT pair_id, data FROM matches")
+    for row in cursor.fetchall():
+        pair_id = row[0]
+        data = row[1]
+
+        if data is None:
+            # skip pairs with no matches
+            sift_matches[pair_id] = None
+            continue
+
+        # COLMAP stores matches as uint32 pairs
+        matches = np.frombuffer(data, dtype=np.uint32).reshape(-1, 2)
+        sift_matches[pair_id] = matches
+
+    return sift_matches
+
+def insert_all_inlier_two_view_geometry(cursor, image_id1, image_id2, matches):
+    """
+    Treats all matches as inliers and inserts dummy two-view geometry.
+    """
+    if image_id1 > image_id2:
+        image_id1, image_id2 = image_id2, image_id1
+        matches = matches[:, [1, 0]]
+
+    pair_id = image_id1 * 2147483647 + image_id2
+
+    # COLMAP expects uint32 indices
+    matches = matches.astype(np.uint32)
+
+    # Dummy geometry (not actually used by mapper)
+    dummy_F = np.eye(3, dtype=np.float64).tobytes()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO two_view_geometries
+        (pair_id, rows, cols, data, config)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        pair_id,
+        matches.shape[0],
+        matches.shape[1],
+        matches.tobytes(),
+        2  # config=2 → "calibrated / essential matrix"
+    ))
+
 if __name__ == "__main__":
+
+    FEATURE_TYPE = 'superpoint'
+    MATCHER_TYPE = 'lightglue'
+    LG_MATCHES_THRESHOLD = 40
+
 
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--rgb_path", type=Path, required=True)
-    parser.add_argument("--feature", type=str, required=True)
-    parser.add_argument("--matcher", type=str, required=True)
+    parser.add_argument("--rgb_csv", type=Path, required=True)
 
     args, _ = parser.parse_known_args()
 
     DB_PATH = args.database
     IMAGE_DIR = args.rgb_path
-    FEATURE_TYPE = args.feature
-    MATCHER_TYPE = args.matcher
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    matches_file_path = os.path.join(os.path.dirname(DB_PATH), "matches.txt")
 
+    # Load colmap database
     conn, cursor = load_colmap_db(DB_PATH)
     cursor.execute("SELECT image_id, name FROM images")
     images_info = {row[0]: row[1] for row in cursor.fetchall()}
     image_ids = sorted(images_info.keys())
 
-    clean_database(cursor)
-    conn.commit() 
+    # Load SIFT keypoints and matches from exhaustive matching
+    sift_keypoints = load_sift_keypoints(cursor)
+    sift_matches = load_sift_matches(cursor)
 
-    # Keypoint Extraction
-    fts = {}
+    # Clean colmap database
+    clean_database(cursor)
+    conn.commit()
+
+    # Extract superpoint keypoints
+    fts_sp = {}
+    keypoints_sp = {}
+    rotations_sp = {}
     for i in tqdm(range(len(image_ids)), desc="Feature Extraction"):
         id = image_ids[i]
         fname = images_info[id]
         path = os.path.join(IMAGE_DIR, fname)
 
-        feats_dict, h, w = extract_keypoints(path, features=FEATURE_TYPE)
-        
-        fts[id] = feats_dict
+        feats_dict, feats_norot, h, w = extract_keypoints(path, features=FEATURE_TYPE)
+        fts_sp[id] = feats_norot
 
-        kpts = feats_dict['keypoints'].squeeze(0).cpu().numpy().astype(np.float32)
+        kpts_sp = feats_dict['keypoints'].squeeze(0).cpu().numpy().astype(np.float32)
         descs = feats_dict['descriptors'].squeeze(0).cpu().numpy().astype(np.float32)
 
-        if FEATURE_TYPE == 'superpoint':
-            kpts_rot = unrotate_kps_W(kpts, feats_dict['rotations'].squeeze(0).cpu().numpy().astype(np.float32), h, w)
-        else:
-            kpts_rot = kpts
-        insert_keypoints(cursor, id, kpts_rot, descs)
+        keypoints_sp[id] = kpts_sp
+        rotations_sp[id] = feats_dict['rotations'].squeeze(0).cpu().numpy().astype(np.float32)
 
-    conn.commit() 
+    # Combine superpoint and SIFT keypoints, insert into database
+    for i in tqdm(range(len(image_ids)), desc="Feature Extraction"):
+            id = image_ids[i]
+            kpts_sp = keypoints_sp[id]
+            rots_sp = rotations_sp[id]
+            kpts_rot = unrotate_kps_W(kpts_sp, rots_sp, h, w)
+            
+            N = kpts_rot.shape[0]
 
-    # Feature Matching
-    if MATCHER_TYPE == 'lightglue':
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        matcher = LightGlue(features='superpoint', depth_confidence=-1, width_confidence=-1, flash=True).eval().to(device)
-    else:
-        matcher = None
+            scales = np.ones((N, 1), dtype=np.float32)
+            oris   = np.zeros((N, 1), dtype=np.float32)
+            resp   = np.ones((N, 1), dtype=np.float32)
+            octave = np.zeros((N, 1), dtype=np.float32)
 
-    with open(matches_file_path, "w") as f_match:
-        for i in tqdm(range(len(image_ids)), desc="Feature Extraction"):
-            id1 = image_ids[i]
-            fname1 = images_info[id1]
-            path1 = os.path.join(IMAGE_DIR, fname1)
+            kpts_mod = np.hstack([
+                kpts_rot.astype(np.float32),  # (N, 2)
+                scales,
+                oris,
+                resp,
+                octave
+            ])
 
-            for j in range(i + 1, len(image_ids)):
-                if j == i:
-                    continue
-                id2 = image_ids[j]
+            kpts_sift = sift_keypoints[id]
 
-                fname2 = images_info[id2]
-                path2 = os.path.join(IMAGE_DIR, fname2)
-                matches_tensor = feature_matching(fts[id1], fts[id2], matcher=matcher, features=FEATURE_TYPE, matcher_type=MATCHER_TYPE) 
-
-                if matches_tensor is not None and len(matches_tensor) > 0:
-                    matches_np = matches_tensor.cpu().numpy().astype(np.uint32)
-                    #insert_matches(cursor, id1, id2, matches_np)
+            kpts = np.vstack([kpts_sift, kpts_mod])
+            descs = np.zeros((kpts.shape[0], 128), dtype=np.float32)
                     
-                    f_match.write(f"{fname1} {fname2}\n")
-                    np.savetxt(f_match, matches_np, fmt="%d")
-                    f_match.write("\n")
-                
-                    #verify_matches_visual(cursor, image_ids[i], image_ids[j], IMAGE_DIR)                
-            #plt.show()
-    
+            insert_keypoints(cursor, id, kpts, descs)
+
     conn.commit()
 
-    #plot_matches_from_db(cursor, image_ids[0], image_ids[1], IMAGE_DIR)
+    # Feature Matching
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    matcher = LightGlue(features='superpoint', depth_confidence=-1, width_confidence=-1, flash=True).eval().to(device)
 
+    for i in tqdm(range(len(image_ids)), desc="Feature Matching"):
+        id1 = image_ids[i]
+        fname1 = images_info[id1]
+        path1 = os.path.join(IMAGE_DIR, fname1)
+
+        for j in range(i + 1, len(image_ids)):
+            if j == i:
+                continue
+            id2 = image_ids[j]
+            fname2 = images_info[id2]
+            path2 = os.path.join(IMAGE_DIR, fname2)
+
+            # Get SIFT matches
+            pair_id = create_pair_id(id1, id2)
+            matches_sift = sift_matches[pair_id]
+            if matches_sift is None:
+                matches_sift = np.zeros((0, 2), dtype=np.uint32)
+
+            n_sift_kpts_1 = sift_keypoints[id1].shape[0]
+            n_sift_kpts_2 = sift_keypoints[id2].shape[0]
+
+            # Compute LightGlue matches
+            matches_lg = feature_matching(fts_sp[id1], fts_sp[id2], matcher=matcher, exhaustive=True) 
+
+            if matches_lg is not None and len(matches_lg) > LG_MATCHES_THRESHOLD:
+                matches_lg[:,0] += n_sift_kpts_1
+                matches_lg[:,1] += n_sift_kpts_2
+            else:
+                matches_lg = np.zeros((0, 2), dtype=np.uint32)
+            
+            # Combine superpoint and SIFT matches, insert into database
+            matches = np.vstack([matches_sift, matches_lg])               
+            insert_matches(cursor, id1, id2, matches)
+            insert_all_inlier_two_view_geometry(cursor, id1, id2, matches)
+ 
+    conn.commit()
     conn.close()
     print("Database overwrite complete.")    

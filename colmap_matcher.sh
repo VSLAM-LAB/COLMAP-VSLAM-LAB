@@ -146,10 +146,10 @@ fi
 # LightGlue Feature Matcher
 if [ "${matcher_type}" == "custom" ]
 then
-  pixi run -e lightglue python3 Baselines/colmap/feature_matcher.py --database ${database} --rgb_path ${rgb_path} --feature superpoint --matcher lightglue --use_gpu ${use_gpu}
-  colmap matches_importer \
+  colmap exhaustive_matcher \
       --database_path ${database} \
-      --match_list_path "${exp_folder_colmap}/matches.txt" \
-      --match_type raw 
+      --FeatureMatching.use_gpu ${use_gpu} 
+  
+  pixi run -e lightglue python3 Baselines/colmap/feature_matcher.py --database ${database} --rgb_path ${rgb_path} --rgb_csv ${rgb_csv}
 fi
 

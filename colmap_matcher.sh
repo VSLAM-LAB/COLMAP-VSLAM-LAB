@@ -3,8 +3,8 @@ echo ""
 echo "Executing colmap_matcher.sh ..."
 
 sequence_path="$1"
-exp_folder="$2" 
-exp_id="$3" 
+exp_folder="$2"
+exp_id="$3"
 settings_yaml="$4"
 calibration_yaml="$5"
 rgb_csv="$6"
@@ -26,7 +26,7 @@ python3 Baselines/colmap/create_colmap_image_list.py "$rgb_csv" "$colmap_image_l
 # Create Colmap Database
 database="${exp_folder_colmap}/colmap_database.db"
 rm -rf ${database}
-colmap database_creator --database_path ${database} 
+colmap database_creator --database_path ${database}
 
 # Feature extractor
 echo "    colmap feature_extractor ..."
@@ -94,7 +94,7 @@ then
   --ImageReader.camera_params "${fx},${fy},${cx},${cy},${k1},${k2},${p1},${p2},${k3},0,0,0"
 fi
 
-if [ "${calibration_model}" == "equid4" ] 
+if [ "${calibration_model}" == "equid4" ]
 then
   read -r calibration_model fx fy cx cy k1 k2 k3 k4 <<< $(python3 Baselines/colmap/get_calibration.py "$calibration_yaml" "$camera_name")
   echo "        camera model : $calibration_model"
@@ -126,12 +126,12 @@ then
   num_rgb=$(( $(wc -l < "$rgb_csv") - 1 ))
 
   # Pick vocabulary tree based on the number of images
-  vocabulary_tree="Baselines/colmap/vocab_tree_flickr100K_words32K.bin"
+  vocabulary_tree="Baselines/colmap/vocab_tree_faiss_flickr100K_words32K.bin"
   if [ "$num_rgb" -gt 1000 ]; then
-    vocabulary_tree="Baselines/colmap/vocab_tree_flickr100K_words256K.bin"
+    vocabulary_tree="Baselines/colmap/vocab_tree_faiss_flickr100K_words256K.bin"
   fi
   if [ "$num_rgb" -gt 10000 ]; then
-    vocabulary_tree="Baselines/colmap/vocab_tree_flickr100K_words1M.bin"
+    vocabulary_tree="Baselines/colmap/vocab_tree_faiss_flickr100K_words1M.bin"
   fi
 
   echo "    colmap sequential_matcher ..."
@@ -148,8 +148,8 @@ if [ "${matcher_type}" == "custom" ]
 then
   colmap exhaustive_matcher \
       --database_path ${database} \
-      --FeatureMatching.use_gpu ${use_gpu} 
-  
+      --FeatureMatching.use_gpu ${use_gpu}
+
   pixi run -e lightglue python3 Baselines/colmap/feature_matcher.py --database ${database} --rgb_path ${rgb_path} --rgb_csv ${rgb_csv}
 fi
 

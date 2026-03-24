@@ -72,7 +72,7 @@ then
 	--image_list_path ${colmap_image_list} \
 	--ImageReader.camera_model "OPENCV" \
 	--ImageReader.single_camera 1 \
-  --ImageReader.single_camera_per_folder 1 \
+  --ImageReader.single_camera_per_folder 0 \
 	--FeatureExtraction.use_gpu ${use_gpu} \
   --ImageReader.camera_params "${fx},${fy},${cx},${cy},${k1},${k2},${p1},${p2}"
 fi

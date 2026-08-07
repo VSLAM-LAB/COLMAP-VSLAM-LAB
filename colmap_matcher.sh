@@ -47,11 +47,21 @@ esac
 # Detect usable GPUs: extraction/matching run as a single job across all of
 # them, since COLMAP spawns one worker per listed GPU index and splits the
 # per-image / per-block workload internally.
+echo "    detecting GPUs ..."
+echo "        nvidia-smi -L:"
+nvidia-smi -L 2>&1 | sed 's/^/            /'
+echo "        nvidia-smi --query-gpu=index,name,uuid --format=csv:"
+nvidia-smi --query-gpu=index,name,uuid --format=csv 2>&1 | sed 's/^/            /'
+echo "        CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
+
 gpu_ids=($(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null))
 if [ "${#gpu_ids[@]}" -lt 1 ] || [ "${use_gpu}" == "0" ]; then
   gpu_ids=(0)
 fi
 gpu_index_list=$(IFS=,; echo "${gpu_ids[*]}")
+echo "        use_gpu: ${use_gpu}"
+echo "        detected gpu_ids: ${gpu_ids[*]}"
+echo "        gpu_index_list passed to colmap: ${gpu_index_list}"
 
 # Get calibration model and parameters
 read -r calibration_model params <<< $(python3 Baselines/colmap/get_calibration.py "$calibration_yaml" "$camera_name")

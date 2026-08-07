@@ -54,7 +54,18 @@ echo "        nvidia-smi --query-gpu=index,name,uuid --format=csv:"
 nvidia-smi --query-gpu=index,name,uuid --format=csv 2>&1 | sed 's/^/            /'
 echo "        CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
 
-gpu_ids=($(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null))
+if [ -n "${CUDA_VISIBLE_DEVICES}" ]; then
+  # The scheduler already restricted this job to a specific device set (often
+  # MIG slice UUIDs on HPC, which `nvidia-smi --query-gpu=index` does not
+  # enumerate - it lists the whole node's GPUs, not what's gated to this job).
+  # CUDA remaps whatever's listed here to ordinals 0..N-1 inside the process,
+  # and COLMAP's gpu_index just calls cudaSetDevice(ordinal), so address by
+  # ordinal count rather than trying to resolve real indices/UUIDs ourselves.
+  num_gpus=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c .)
+  gpu_ids=($(seq 0 $((num_gpus - 1))))
+else
+  gpu_ids=($(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null))
+fi
 if [ "${#gpu_ids[@]}" -lt 1 ] || [ "${use_gpu}" == "0" ]; then
   gpu_ids=(0)
 fi

@@ -74,6 +74,14 @@ echo "        use_gpu: ${use_gpu}"
 echo "        detected gpu_ids: ${gpu_ids[*]}"
 echo "        gpu_index_list passed to colmap: ${gpu_index_list}"
 
+# Bound CPU thread count too: num_threads=-1 (COLMAP's default) auto-detects
+# via APIs that on cgroup-limited HPC nodes often report the physical node's
+# total core count rather than what's actually allocated to this job. `nproc`
+# (not `nproc --all`) reports the affinity-restricted count instead, so it
+# respects whatever the scheduler's cgroup actually granted.
+num_threads=$(nproc)
+echo "        num_threads: ${num_threads}"
+
 # Get calibration model and parameters
 read -r calibration_model params <<< $(python3 Baselines/colmap/get_calibration.py "$calibration_yaml" "$camera_name")
 
@@ -132,6 +140,7 @@ colmap feature_extractor \
     --FeatureExtraction.type ${feature_extraction_type} \
     --FeatureExtraction.use_gpu ${use_gpu} \
     --FeatureExtraction.gpu_index "${gpu_index_list}" \
+    --FeatureExtraction.num_threads "${num_threads}" \
     "${camera_params_args[@]}"
 
 # Exhaustive Feature Matcher
@@ -143,7 +152,8 @@ then
     --database_path "${database}" \
     --FeatureMatching.type "${feature_matching_type}" \
     --FeatureMatching.use_gpu "${use_gpu}" \
-    --FeatureMatching.gpu_index "${gpu_index_list}"
+    --FeatureMatching.gpu_index "${gpu_index_list}" \
+    --FeatureMatching.num_threads "${num_threads}"
 fi
 
 # Sequential Feature Matcher
@@ -169,5 +179,6 @@ then
     --SequentialMatching.vocab_tree_path ${vocabulary_tree} \
     --FeatureMatching.type "${feature_matching_type}" \
     --FeatureMatching.use_gpu "${use_gpu}" \
-    --FeatureMatching.gpu_index "${gpu_index_list}"
+    --FeatureMatching.gpu_index "${gpu_index_list}" \
+    --FeatureMatching.num_threads "${num_threads}"
 fi

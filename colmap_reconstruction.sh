@@ -5,6 +5,7 @@ matcher_type="exhaustive"
 matching_type="sift_bruteforce"
 mapper_type="colmap"
 use_gpu="1"
+use_mask="0"
 verbose="0"
 settings_yaml=""
 sequence_path=""
@@ -38,6 +39,7 @@ echo "  Matcher Type      : $matcher_type"
 echo "  Matching Type     : $matching_type"
 echo "  Mapper Type       : $mapper_type"
 echo "  Use GPU           : $use_gpu"
+echo "  Use Mask          : $use_mask"
 echo "  Settings YAML     : $settings_yaml"
 echo "  Calibration YAML  : $calibration_yaml"
 echo "  RGB CSV           : $rgb_csv"
@@ -52,7 +54,7 @@ mkdir "$exp_folder_colmap"
 # Run COLMAP scripts for matching and mapping
 export QT_QPA_PLATFORM_PLUGIN_PATH="$CONDA_PREFIX/plugins/platforms"
 colmap_args="$sequence_path $exp_folder $exp_id $settings_yaml $calibration_yaml $rgb_csv"
-./Baselines/colmap/colmap_matcher.sh $colmap_args $matcher_type $use_gpu $camera_name $matching_type
+./Baselines/colmap/colmap_matcher.sh $colmap_args $matcher_type $use_gpu $camera_name $matching_type $use_mask
 ./Baselines/colmap/colmap_mapper.sh $colmap_args $camera_name $mapper_type
 
 # Convert COLMAP outputs to a format suitable for VSLAM-LAB
@@ -64,7 +66,9 @@ if [ "$verbose" -eq 1 ]; then
   rgb_dir=$(awk -F, 'NR==2 { split($2,a,"/"); print a[1]; exit }' "$rgb_csv")
   rgb_path="${sequence_path}/${rgb_dir}"
   database="${exp_folder_colmap}/colmap_database.db"
-  colmap gui --import_path "${exp_folder_colmap}/0" --database_path ${database} --image_path ${rgb_path}
+  # The largest sub-model, as picked by colmap_mapper.sh (falls back to /0).
+  best_model=$(cat "${exp_folder_colmap}/best_model" 2>/dev/null || echo "${exp_folder_colmap}/0")
+  colmap gui --import_path "${best_model}" --database_path ${database} --image_path ${rgb_path}
 fi
 
 # # Remove colmap data

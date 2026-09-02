@@ -12,6 +12,7 @@ matcher_type="$7"
 use_gpu="$8"
 camera_name="$9"
 matching_type="${10}"
+use_mask="${11:-0}"
 
 exp_folder_colmap="${exp_folder}/colmap_${exp_id}"
 rgb_dir=$(awk -F, 'NR==2 { split($2,a,"/"); print a[1]; exit }' "$rgb_csv")
@@ -130,6 +131,30 @@ echo "        camera model : ${calibration_model} (colmap: ${colmap_camera_model
 camera_params_args=()
 [ -n "${camera_params}" ] && camera_params_args=(--ImageReader.camera_params "${camera_params}")
 
+# Masks (use_mask=1): the rgb csv's path_mask_<i> column (1 = usable pixel, 0 = masked out - no
+# features are extracted where the mask is 0). One shared mask (refrax) goes through
+# --ImageReader.camera_mask_path, per-frame masks (mask2former, datasets shipping masks) through
+# a directory of <image name>.png symlinks and --ImageReader.mask_path.
+mask_args=()
+if [ "${use_mask}" == "1" ]; then
+  mask_spec=$(python3 Baselines/colmap/create_colmap_mask_dir.py "$rgb_csv" "$camera_name" "$sequence_path" "${exp_folder_colmap}/colmap_masks" | tail -n 1)
+  case "${mask_spec}" in
+    camera_mask:*)
+      mask_args=(--ImageReader.camera_mask_path "${mask_spec#camera_mask:}")
+      echo "        mask: shared camera mask ${mask_spec#camera_mask:}"
+      ;;
+    mask_dir:*)
+      mask_args=(--ImageReader.mask_path "${mask_spec#mask_dir:}")
+      echo "        mask: per-frame masks in ${mask_spec#mask_dir:}"
+      ;;
+    *)
+      echo "        mask: none available for ${camera_name} in ${rgb_csv}"
+      ;;
+  esac
+else
+  echo "        mask: disabled (use_mask=${use_mask})"
+fi
+
 colmap feature_extractor \
     --database_path ${database} \
     --image_path ${rgb_path} \
@@ -141,7 +166,8 @@ colmap feature_extractor \
     --FeatureExtraction.use_gpu ${use_gpu} \
     --FeatureExtraction.gpu_index "${gpu_index_list}" \
     --FeatureExtraction.num_threads "${num_threads}" \
-    "${camera_params_args[@]}"
+    "${camera_params_args[@]}" \
+    "${mask_args[@]}"
 
 # Exhaustive Feature Matcher
 if [ "${matcher_type}" == "exhaustive" ];

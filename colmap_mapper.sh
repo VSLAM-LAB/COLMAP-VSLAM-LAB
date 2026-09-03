@@ -9,6 +9,7 @@ calibration_yaml="$5"
 rgb_csv="$6"
 camera_name="$7"
 mapper_type="$8"
+optimize_intrinsics="${9:-1}"
 
 exp_folder_colmap="${exp_folder}/colmap_${exp_id}"
 # The frame folder comes from the csv, as in colmap_matcher.sh: the run pipeline may point
@@ -19,15 +20,28 @@ rgb_path="${sequence_path}/${rgb_dir}"
 
 read -r calibration_model more_ <<< $(python3 Baselines/colmap/get_calibration.py "$calibration_yaml" "$camera_name")
 echo "        camera model : $calibration_model"
-ba_refine_focal_length="1"
-ba_refine_principal_point="0"
-ba_refine_extra_params="1"
-if [ "${calibration_model}" == "unknown" ]
+
+# optimize_intrinsics (0/1, default 1): whether bundle adjustment refines the camera intrinsics.
+# With 1, focal length and distortion (extra params) are refined and the principal point stays
+# fixed, matching COLMAP's own defaults; with 0 the intrinsics from the calibration yaml are kept
+# as given. An 'unknown' calibration model has no intrinsics to keep (the matcher started COLMAP
+# from a guess), so it always refines regardless of the flag.
+if [ "${calibration_model}" == "unknown" ] && [ "${optimize_intrinsics}" != "1" ]
+then
+  echo "        WARNING: optimize_intrinsics=${optimize_intrinsics} ignored: camera model is 'unknown' (no intrinsics to keep fixed), refining intrinsics"
+  optimize_intrinsics="1"
+fi
+if [ "${optimize_intrinsics}" == "1" ]
 then
   ba_refine_focal_length="1"
   ba_refine_principal_point="0"
   ba_refine_extra_params="1"
+else
+  ba_refine_focal_length="0"
+  ba_refine_principal_point="0"
+  ba_refine_extra_params="0"
 fi
+echo "        optimize_intrinsics: ${optimize_intrinsics} (ba_refine_focal_length=${ba_refine_focal_length}, ba_refine_principal_point=${ba_refine_principal_point}, ba_refine_extra_params=${ba_refine_extra_params})"
 
 database="${exp_folder_colmap}/colmap_database.db"
 

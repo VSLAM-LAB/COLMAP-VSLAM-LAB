@@ -6,6 +6,7 @@ matching_type="sift_bruteforce"
 mapper_type="colmap"
 use_gpu="1"
 use_mask="0"
+optimize_intrinsics="1"
 verbose="0"
 settings_yaml=""
 sequence_path=""
@@ -40,6 +41,7 @@ echo "  Matching Type     : $matching_type"
 echo "  Mapper Type       : $mapper_type"
 echo "  Use GPU           : $use_gpu"
 echo "  Use Mask          : $use_mask"
+echo "  Optimize Intrins. : $optimize_intrinsics"
 echo "  Settings YAML     : $settings_yaml"
 echo "  Calibration YAML  : $calibration_yaml"
 echo "  RGB CSV           : $rgb_csv"
@@ -55,7 +57,7 @@ mkdir "$exp_folder_colmap"
 export QT_QPA_PLATFORM_PLUGIN_PATH="$CONDA_PREFIX/plugins/platforms"
 colmap_args="$sequence_path $exp_folder $exp_id $settings_yaml $calibration_yaml $rgb_csv"
 ./Baselines/colmap/colmap_matcher.sh $colmap_args $matcher_type $use_gpu $camera_name $matching_type $use_mask
-./Baselines/colmap/colmap_mapper.sh $colmap_args $camera_name $mapper_type
+./Baselines/colmap/colmap_mapper.sh $colmap_args $camera_name $mapper_type $optimize_intrinsics
 
 # Convert COLMAP outputs to a format suitable for VSLAM-LAB
 python Baselines/colmap/colmap_to_vslamlab.py $sequence_path $exp_folder $exp_id $verbose $rgb_csv $camera_name

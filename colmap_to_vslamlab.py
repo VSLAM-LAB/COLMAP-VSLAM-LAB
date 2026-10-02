@@ -1,102 +1,89 @@
-import numpy as np
-from scipy.spatial.transform import Rotation as R
-import sys
+"""
+Module: VSLAM-LAB - Baselines - colmap - colmap_to_vslamlab.py
+- Author: Alejandro Fontan Villacampa
+- Assisted by: Claude (Fable 5.1)
+- Version: 1.1
+- Created: 2024-07-12
+- Updated: 2026-10-03
+- License: GPLv3 License
+
+Writes <exp_folder>/<exp_id>_KeyFrameTrajectory.csv (VSLAM-LAB's TUM-style csv, camera-to-world
+poses) from the TXT model <exp_folder>/colmap_<exp_id>/images.txt, taking each image's timestamp
+from the experiment's rgb csv (COLMAP image ids are 1-based row indices of that csv, as the image
+list was written in csv order). Importable (vslamlab_colmap.py) and runnable with the positional
+arguments the old shell pipeline used.
+"""
+
 import os
+import sys
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
+from scipy.spatial.transform import Rotation as R
 
-def get_colmap_keyframes(images_file, number_of_header_lines, verbose=False):
+
+def get_colmap_keyframes(images_file: str | Path, number_of_header_lines: int = 4) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(image ids, t_wc, q_wc xyzw) sorted by image id, quaternion signs made continuous."""
     print(f"get_colmap_keyframes: {images_file}")
-    
-    image_id = []
-    q_wc_xyzw = []
-    t_wc = []
 
-    with open(f"{images_file}", 'r') as file:
-        # Skip the header lines
+    image_id, q_wc_xyzw, t_wc = [], [], []
+    with open(images_file, 'r') as file:
         for _ in range(number_of_header_lines):
             file.readline()
-        
         while True:
             line1 = file.readline()
             if not line1:
                 break
             elements = line1.split()
-            
-            IMAGE_ID = int(elements[0])
-            image_id.append(IMAGE_ID)
-            
-            QW = float(elements[1])
-            QX = float(elements[2])
-            QY = float(elements[3])
-            QZ = float(elements[4])
-            
-            TX = float(elements[5])
-            TY = float(elements[6])
-            TZ = float(elements[7])
+            image_id.append(int(elements[0]))
 
-            t_cw_i = np.array([TX, TY, TZ])
-            q_wc_i = R.from_quat([QX, QY, QZ, QW]).inv()
-            R_wc_i = q_wc_i.as_matrix()
-            
-            q_wc_xyzw.append([q_wc_i.as_quat()[0], q_wc_i.as_quat()[1], q_wc_i.as_quat()[2], q_wc_i.as_quat()[3]])
-            t_wc.append(-R_wc_i @ t_cw_i)
+            qw, qx, qy, qz = (float(e) for e in elements[1:5])
+            t_cw_i = np.array([float(e) for e in elements[5:8]])
+            q_wc_i = R.from_quat([qx, qy, qz, qw]).inv()
+            q_wc_xyzw.append(q_wc_i.as_quat())
+            t_wc.append(-q_wc_i.as_matrix() @ t_cw_i)
 
-            file.readline()
-    
-    image_id = np.array(image_id)
-    q_wc_xyzw = np.array(q_wc_xyzw)
-    t_wc = np.array(t_wc)
+            file.readline()  # POINTS2D line
 
-    sorted_indices = image_id.argsort()
-    image_id = image_id[sorted_indices]
-    q_wc_xyzw = q_wc_xyzw[sorted_indices]
-    t_wc = t_wc[sorted_indices]
+    image_id, q_wc_xyzw, t_wc = np.array(image_id), np.array(q_wc_xyzw), np.array(t_wc)
+    order = image_id.argsort()
+    image_id, q_wc_xyzw, t_wc = image_id[order], q_wc_xyzw[order], t_wc[order]
 
-    q_wc_xyzw_corrected = q_wc_xyzw.copy()
-    for i in range(1, len(q_wc_xyzw_corrected)):
-        dot_product = np.dot(q_wc_xyzw_corrected[i - 1], q_wc_xyzw_corrected[i])
-        if dot_product < 0:
-            q_wc_xyzw_corrected[i] = -q_wc_xyzw_corrected[i]
+    for i in range(1, len(q_wc_xyzw)):
+        if np.dot(q_wc_xyzw[i - 1], q_wc_xyzw[i]) < 0:
+            q_wc_xyzw[i] = -q_wc_xyzw[i]
+    return image_id, t_wc, q_wc_xyzw
 
-    return image_id, t_wc, q_wc_xyzw_corrected
 
-def write_trajectory_tum_format(file_name, image_ts, t_wc, q_wc_xyzw):
+def write_trajectory_tum_format(file_name: str | Path, image_ts: np.ndarray, t_wc: np.ndarray, q_wc_xyzw: np.ndarray) -> None:
     print(f"writeTrajectoryTUMformat: {file_name}")
-    
     data = np.hstack((image_ts.reshape(-1, 1), t_wc, q_wc_xyzw))
     data = data[data[:, 0].argsort()]
-
     with open(file_name, 'w', newline='') as file:
         file.write('ts (ns),tx (m),ty (m),tz (m),qx,qy,qz,qw\n')
         for row in data:
             file.write(','.join(f'{x:.15f}' for x in row) + '\n')
 
-def get_timestamps(files_path, rgb_file, camera_name):
-    print(f"getTimestamps: {os.path.join(files_path, rgb_file)}")
-    df = pd.read_csv(rgb_file)       
-    ts = df[f'ts_{camera_name} (ns)'].to_list()
-    return ts
-                
+
+def get_timestamps(rgb_csv: str | Path, camera_name: str) -> list[float]:
+    print(f"getTimestamps: {rgb_csv}")
+    return pd.read_csv(rgb_csv)[f'ts_{camera_name} (ns)'].to_list()
+
+
+def colmap_to_vslamlab(exp_folder: str | Path, exp_id: str, rgb_csv: str | Path, camera_name: str) -> Path:
+    images_file = Path(exp_folder) / f'colmap_{exp_id}' / 'images.txt'
+    image_id, t_wc, q_wc_xyzw = get_colmap_keyframes(images_file)
+
+    image_ts = np.array(get_timestamps(rgb_csv, camera_name))
+    timestamps = np.array([float(image_ts[i - 1]) for i in image_id])
+
+    trajectory_csv = Path(exp_folder) / f'{exp_id}_KeyFrameTrajectory.csv'
+    write_trajectory_tum_format(trajectory_csv, timestamps, t_wc, q_wc_xyzw)
+    return trajectory_csv
+
+
 if __name__ == "__main__":
-
-    sequence_path = sys.argv[1]
-    exp_folder = sys.argv[2]
-    exp_id = sys.argv[3]
-    verbose = bool(int(sys.argv[4]))
-    rgb_file = sys.argv[5]
-    camera_name = sys.argv[6]
-
-    images_file = os.path.join(exp_folder, f'colmap_{exp_id}', 'images.txt')
-
-    number_of_header_lines = 4
-    image_id, t_wc, q_wc_xyzw = get_colmap_keyframes(images_file, number_of_header_lines, verbose)
-
-    image_ts = np.array(get_timestamps(sequence_path, rgb_file, camera_name))
-    timestamps = []
-    for id in image_id:
-        timestamps.append(float(image_ts[id-1]))
-
-    timestamps = np.array(timestamps)
-
-    keyFrameTrajectory_txt = os.path.join(exp_folder, exp_id + '_KeyFrameTrajectory' + '.csv')
-    write_trajectory_tum_format(keyFrameTrajectory_txt, timestamps, t_wc, q_wc_xyzw)
+    # positional: sequence_path exp_folder exp_id verbose rgb_csv camera_name (sequence_path/verbose unused)
+    _, exp_folder_, exp_id_, _, rgb_csv_, camera_name_ = sys.argv[1:7]
+    colmap_to_vslamlab(exp_folder_, exp_id_, rgb_csv_, camera_name_)

@@ -1,33 +1,45 @@
-import yaml
-import sys
-import argparse
-import numpy as np
+"""
+Module: VSLAM-LAB - Baselines - colmap - get_calibration.py
+- Author: Alejandro Fontan Villacampa
+- Assisted by: Claude (Fable 5.1)
+- Version: 1.1
+- Created: 2024-07-12
+- Updated: 2026-10-03
+- License: GPLv3 License
 
-def get_camera_intrinsics(calibration_yaml, cam_name):
+Reads one camera of a VSLAM-LAB calibration yaml as (model, [fx, fy, cx, cy, *distortion]).
+The model is the distortion_type when the camera has distortion fields, else its cam_model
+(so 'pinhole' and 'unknown' come through unchanged). Importable (colmap_utilities.colmap_camera)
+and runnable: `python get_calibration.py <calibration_yaml> <camera_name>` prints the same
+fields space-separated on one line.
+"""
+
+import argparse
+from pathlib import Path
+
+import yaml
+
+
+def get_camera_intrinsics(calibration_yaml: str | Path, cam_name: str) -> tuple[str, list[float]]:
     with open(calibration_yaml, 'r') as file:
         data = yaml.safe_load(file)
-    cameras = data.get('cameras', [])
-    for cam_ in cameras:
-        if cam_['cam_name'] == cam_name:
-            cam = cam_;
-            break;
-  
+    cam = next(c for c in data.get('cameras', []) if c['cam_name'] == cam_name)
+
+    fx, fy = cam['focal_length'][0], cam['focal_length'][1]
+    cx, cy = cam['principal_point'][0], cam['principal_point'][1]
+    params = [float(fx), float(fy), float(cx), float(cy)]
+
     has_dist = ('distortion_type' in cam) and ('distortion_coefficients' in cam)
-    K = np.array([[cam['focal_length'][0], 0,  cam['principal_point'][0]],
-                  [0,  cam['focal_length'][1], cam['principal_point'][1]],
-                  [0,  0,   1]], dtype=np.float32)
-    
     if has_dist:
-        dist= " ".join(map(str, cam['distortion_coefficients']))
-        print(f"{cam['distortion_type']} {K[0,0]} {K[1,1]} {K[0,2]} {K[1,2]} {dist}")
-    else:
-        print(f"{cam['cam_model']} {K[0,0]} {K[1,1]} {K[0,2]} {K[1,2]}")
-        
-    
+        return cam['distortion_type'], params + [float(d) for d in cam['distortion_coefficients']]
+    return cam['cam_model'], params
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("calibration_yaml", help="Path to the calibration YAML")
     parser.add_argument("camera_name", help="camera_name")
     args = parser.parse_args()
-    
-    get_camera_intrinsics(args.calibration_yaml, args.camera_name)
+
+    model, params = get_camera_intrinsics(args.calibration_yaml, args.camera_name)
+    print(model, *params)

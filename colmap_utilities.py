@@ -104,19 +104,30 @@ def rgb_path_from_csv(sequence_path: Path, rgb_csv: Path, camera_name: str) -> P
     return sequence_path / rgb_dir
 
 
+# VSLAM-LAB calibration model -> (COLMAP camera model, number of distortion coefficients expected
+# after fx fy cx cy, zeros appended to reach COLMAP's parameter count). radtan* are OpenCV's
+# k1 k2 p1 p2 [k3 [k4 k5 k6]] in COLMAP's OPENCV / FULL_OPENCV order; equid4 is k1 k2 k3 k4.
+_COLMAP_MODELS: dict[str, tuple[str, int, int]] = {
+    "pinhole": ("PINHOLE", 0, 0),
+    "radtan4": ("OPENCV", 4, 0),
+    "radtan5": ("FULL_OPENCV", 5, 3),
+    "radtan8": ("FULL_OPENCV", 8, 0),
+    "equid4": ("OPENCV_FISHEYE", 4, 0),
+}
+
+
 def colmap_camera(calibration_yaml: Path, camera_name: str) -> tuple[str, str, str]:
     """(vslamlab calibration model, COLMAP camera model, comma-separated COLMAP params or '')."""
     calibration_model, params = get_camera_intrinsics(calibration_yaml, camera_name)
-    params_csv = ",".join(str(p) for p in params)
-    if calibration_model == "unknown":
+    if calibration_model == "unknown":  # no intrinsics to pass: COLMAP starts from its own guess
         return calibration_model, "OPENCV", ""
-    if calibration_model == "pinhole":
-        return calibration_model, "PINHOLE", params_csv
-    if calibration_model == "radtan4":
-        return calibration_model, "OPENCV", params_csv
-    if calibration_model == "radtan5":
-        return calibration_model, "FULL_OPENCV", params_csv + ",0,0,0"
-    if calibration_model == "equid4":
-        return calibration_model, "OPENCV_FISHEYE", params_csv
-    print(f"Unknown calibration_model: {calibration_model}")
-    sys.exit(1)
+    if calibration_model not in _COLMAP_MODELS:
+        print(f"Unknown calibration_model: {calibration_model} (expected one of {['unknown', *_COLMAP_MODELS]})")
+        sys.exit(1)
+    colmap_model, num_dist, num_zeros = _COLMAP_MODELS[calibration_model]
+    if len(params) != 4 + num_dist:
+        print(f"calibration_model {calibration_model} expects {num_dist} distortion coefficients, "
+              f"{camera_name} in {calibration_yaml} has {len(params) - 4}")
+        sys.exit(1)
+    params_csv = ",".join(str(p) for p in params + [0.0] * num_zeros)
+    return calibration_model, colmap_model, params_csv

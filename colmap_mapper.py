@@ -15,7 +15,7 @@ images and exports it as TXT into the colmap folder. Called by vslamlab_colmap.p
 import re
 from pathlib import Path
 
-from colmap_utilities import Settings, colmap_camera, run, settings_args
+from colmap_utilities import PROFILER, Settings, colmap_camera, run, settings_args
 
 
 def registered_images(model_dir: Path) -> int:
@@ -48,6 +48,7 @@ def run_mapper(exp_folder_colmap: Path, rgb_path: Path, calibration_yaml: Path, 
     settings: the [mapper] section of the settings yaml (Mapper_* keys reach mapper, GlobalMapper_* keys glomap)."""
     print("Executing colmap_mapper ...")
     settings = settings or {}
+    PROFILER.set_stage("reconstruction")
 
     calibration_model, _, _ = colmap_camera(calibration_yaml, camera_name)
     print(f"        camera model : {calibration_model}")

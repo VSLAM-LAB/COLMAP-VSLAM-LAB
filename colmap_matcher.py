@@ -14,7 +14,7 @@ creates the COLMAP database, extracts features for the frames listed in the expe
 
 from pathlib import Path
 
-from colmap_utilities import Settings, colmap_camera, detect_gpus, run, settings_args
+from colmap_utilities import PROFILER, Settings, colmap_camera, detect_gpus, run, settings_args
 from create_colmap_image_list import create_colmap_image_list
 from create_colmap_mask_dir import create_colmap_mask_dir
 
@@ -45,6 +45,7 @@ def run_matcher(sequence_path: Path, exp_folder_colmap: Path, rgb_path: Path, rg
     settings: the [feature_extractor] / [matcher] sections of the settings yaml (colmap_utilities.load_settings)."""
     settings = settings or {}
     print("\nExecuting colmap_matcher ...")
+    PROFILER.set_stage("extraction")
 
     if matching_type not in MATCHING_TYPES:
         raise SystemExit(f"Unknown matching_type: {matching_type}")
@@ -113,6 +114,7 @@ def run_matcher(sequence_path: Path, exp_folder_colmap: Path, rgb_path: Path, rg
     matcher_explicit = ["FeatureMatching.type", "FeatureMatching.use_gpu", "FeatureMatching.gpu_index", "FeatureMatching.num_threads",
                         "SequentialMatching.loop_detection", "SequentialMatching.vocab_tree_path"]
 
+    PROFILER.set_stage("matching")
     if matcher_type == "exhaustive":
         print(f"    colmap exhaustive_matcher ({feature_matching_type}) ...")
         print(f"        gpu_index: {gpu_index_list}")

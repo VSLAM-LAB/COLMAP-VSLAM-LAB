@@ -14,7 +14,9 @@ command_style 'python' (--key value). Stages, each in its own module:
   colmap_mapper.run_mapper        COLMAP incremental or GLOMAP global mapping, best sub-model, TXT export
   colmap_to_vslamlab              <exp_folder>/<exp_id>_KeyFrameTrajectory.csv from images.txt
   colmap_dense.run_dense          (dense=1) undistort, patch match, fusion -> <exp_id>_dense.ply, optional mesher -> <exp_id>_mesh.ply
-With verbose=1 the best sub-model is opened in the colmap gui afterwards.
+With verbose=1 the best sub-model (or the fused cloud with dense=1) is opened in the colmap gui afterwards.
+Every COLMAP command is timed into <exp_folder>/<exp_id>_profiling.csv by stage (extraction, matching,
+reconstruction, trajectory, dense), see colmap_utilities.Profiler.
 """
 
 import argparse
@@ -29,7 +31,7 @@ from colmap_dense import MESHERS, run_dense  # noqa: E402
 from colmap_matcher import MATCHING_TYPES, run_matcher  # noqa: E402
 from colmap_mapper import run_mapper  # noqa: E402
 from colmap_to_vslamlab import colmap_to_vslamlab  # noqa: E402
-from colmap_utilities import load_settings, rgb_path_from_csv, run  # noqa: E402
+from colmap_utilities import PROFILER, load_settings, rgb_path_from_csv, run  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,6 +90,16 @@ def main() -> None:
     shutil.rmtree(exp_folder_colmap, ignore_errors=True)
     exp_folder_colmap.mkdir(parents=True)
 
+    # Per-stage timing -> <exp_folder>/<exp_id>_profiling.csv (summary printed at the end, also on failure)
+    PROFILER.start(args.exp_folder / f"{exp_id}_profiling.csv")
+    try:
+        run_pipeline(args, exp_id, exp_folder_colmap)
+    finally:
+        PROFILER.summary()
+
+
+def run_pipeline(args: argparse.Namespace, exp_id: str, exp_folder_colmap: Path) -> None:
+
     conda_prefix = os.environ.get("CONDA_PREFIX")
     if conda_prefix:
         os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = f"{conda_prefix}/plugins/platforms"
@@ -103,7 +115,9 @@ def main() -> None:
                             args.optimize_intrinsics, settings)
 
     # Convert COLMAP outputs to a format suitable for VSLAM-LAB
-    colmap_to_vslamlab(args.exp_folder, exp_id, args.rgb_csv, args.camera_name)
+    PROFILER.set_stage("trajectory")
+    with PROFILER.step("colmap_to_vslamlab"):
+        colmap_to_vslamlab(args.exp_folder, exp_id, args.rgb_csv, args.camera_name)
 
     # Dense reconstruction (optional, after the trajectory so a dense problem never costs it)
     gui_model, gui_images = best_model, rgb_path
@@ -118,6 +132,7 @@ def main() -> None:
         mesh_ply = args.exp_folder / f"{exp_id}_mesh.ply"
         if mesh_ply.is_file():
             print(f"\n    colmap gui: to see the mesh, use File > Import model from... (or drag it in): {mesh_ply}")
+        PROFILER.set_stage("gui")
         run(["colmap", "gui", "--import_path", str(gui_model), "--database_path", str(database), "--image_path", str(gui_images)])
 
 

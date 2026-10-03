@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from colmap_utilities import Settings, colmap_has_cuda, detect_gpus, run, settings_args
+from colmap_utilities import PROFILER, Settings, colmap_has_cuda, detect_gpus, run, settings_args
 
 MESHERS = ('none', 'delaunay', 'poisson', 'advancing_front')
 GUI_MODEL_DIR = "sparse_fused"  # synthetic model (fused points as points3D) for `colmap gui`, see write_gui_model
@@ -173,12 +173,15 @@ def run_dense(exp_folder: Path, exp_id: str, exp_folder_colmap: Path, best_model
     settings: the [dense] section of the settings yaml, forwarded to each dense command it applies to."""
     print("\nExecuting colmap_dense ...")
     settings = settings or {}
+    PROFILER.set_stage("dense")
     if mesher not in MESHERS:
         print(f"    WARNING: unknown mesher '{mesher}' (expected one of {list(MESHERS)}); skipping the dense stage")
+        PROFILER.skipped("dense")
         return None
     if use_gpu != 1 or not colmap_has_cuda():
         print(f"    WARNING: dense reconstruction needs the CUDA colmap build and use_gpu=1 "
               f"(use_gpu={use_gpu}, cuda build={colmap_has_cuda()}); skipping the dense stage")
+        PROFILER.skipped("dense")
         return None
 
     gpu_index_list, num_threads = detect_gpus(use_gpu)
@@ -228,7 +231,8 @@ def run_dense(exp_folder: Path, exp_id: str, exp_folder_colmap: Path, best_model
 
         gui_dir = None
         if gui_model:
-            gui_dir = write_gui_model(dense_dir, fused_ply)
+            with PROFILER.step("gui_model"):
+                gui_dir = write_gui_model(dense_dir, fused_ply)
             print(f"        gui model (fused points as 3D points): {gui_dir}")
 
         if mesher == 'none':

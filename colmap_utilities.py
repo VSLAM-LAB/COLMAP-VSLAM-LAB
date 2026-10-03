@@ -12,10 +12,13 @@ colmap_mapper.py): running colmap commands, GPU / thread detection, and mapping 
 calibration onto a COLMAP camera model.
 """
 
+import contextlib
+import csv
 import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -26,13 +29,98 @@ from get_calibration import get_camera_intrinsics
 COLMAP_DIR = Path(__file__).resolve().parent
 
 
+class Profiler:
+    """Per-run timing of the pipeline, written to <exp_folder>/<exp_id>_profiling.csv.
+
+    Every command that goes through run() is one row (its stage, the COLMAP sub-command, start offset,
+    duration, status); Python-side work is recorded with step(). Stage functions call
+    PROFILER.set_stage('extraction') etc. at their boundaries. The csv is rewritten after every step, so a run that dies
+    half-way keeps the rows up to the failure; it ends with one 'total' row per stage and an 'all'
+    total (the interactive 'gui' stage is listed but excluded from 'all'). summary() prints the stage
+    table at the end of the system output."""
+
+    COLUMNS = ("stage", "step", "start (s)", "duration (s)", "status")
+
+    def __init__(self) -> None:
+        self.path: Path | None = None
+        self.t0 = time.perf_counter()
+        self.rows: list[tuple[str, str, float, float, str]] = []
+        self.current_stage = "setup"
+
+    def start(self, path: Path) -> None:
+        self.path, self.t0, self.rows = path, time.perf_counter(), []
+        self.write()
+
+    def set_stage(self, name: str) -> None:
+        """Stage the following steps belong to (extraction, matching, reconstruction, trajectory, dense, gui)."""
+        self.current_stage = name
+
+    def record(self, step: str, start: float, status: str = "ok") -> None:
+        now = time.perf_counter()
+        self.rows.append((self.current_stage, step, start - self.t0, now - start, status))
+        self.write()
+
+    @contextlib.contextmanager
+    def step(self, name: str):
+        start, status = time.perf_counter(), "ok"
+        try:
+            yield
+        except BaseException:
+            status = "failed"
+            raise
+        finally:
+            self.record(name, start, status)
+
+    def skipped(self, step: str) -> None:
+        self.rows.append((self.current_stage, step, time.perf_counter() - self.t0, 0.0, "skipped"))
+        self.write()
+
+    def stage_totals(self) -> list[tuple[str, float]]:
+        totals: dict[str, float] = {}
+        for stage, _, _, duration, _ in self.rows:
+            totals[stage] = totals.get(stage, 0.0) + duration
+        return list(totals.items())
+
+    def write(self) -> None:
+        if self.path is None:
+            return
+        totals = self.stage_totals()
+        with open(self.path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(self.COLUMNS)
+            for stage, step, start, duration, status in self.rows:
+                writer.writerow([stage, step, f"{start:.3f}", f"{duration:.3f}", status])
+            for stage, duration in totals:
+                writer.writerow([stage, "total", "", f"{duration:.3f}", ""])
+            writer.writerow(["all", "total", "", f"{sum(d for s, d in totals if s != 'gui'):.3f}", ""])
+
+    def summary(self) -> None:
+        totals = self.stage_totals()
+        overall = sum(d for s, d in totals if s != "gui") or 1.0
+        print("\n================= Profiling =================")
+        for stage, duration in totals:
+            share = "" if stage == "gui" else f"{100 * duration / overall:5.1f} %"
+            print(f"  {stage:15s} {duration:9.1f} s  {share}")
+        print(f"  {'all':15s} {overall:9.1f} s")
+        if self.path is not None:
+            print(f"  written to {self.path}")
+        print("=============================================")
+
+
+PROFILER = Profiler()
+
+
 def run(cmd: list[str], capture: bool = False, exit_on_error: bool = True) -> str:
     """Run a command; on failure exit with its return code (default) or raise CalledProcessError
-    (exit_on_error=False, for optional stages). Returns the merged output when capture=True."""
+    (exit_on_error=False, for optional stages). Returns the merged output when capture=True.
+    Each call is one row of the profile (step = the colmap sub-command)."""
+    start = time.perf_counter()
     if capture:
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     else:
         result = subprocess.run(cmd)
+    step = cmd[1] if len(cmd) > 1 and cmd[0] == "colmap" else os.path.basename(cmd[0])
+    PROFILER.record(step, start, "ok" if result.returncode == 0 else "failed")
     if result.returncode != 0:
         print(f"    ERROR: '{' '.join(cmd[:2])}' failed with return code {result.returncode}")
         if capture:

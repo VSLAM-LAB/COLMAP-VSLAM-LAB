@@ -24,8 +24,9 @@ from get_calibration import get_camera_intrinsics
 COLMAP_DIR = Path(__file__).resolve().parent
 
 
-def run(cmd: list[str], capture: bool = False) -> str:
-    """Run a command, exiting with its return code if it fails. Returns the merged output when capture=True."""
+def run(cmd: list[str], capture: bool = False, exit_on_error: bool = True) -> str:
+    """Run a command; on failure exit with its return code (default) or raise CalledProcessError
+    (exit_on_error=False, for optional stages). Returns the merged output when capture=True."""
     if capture:
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     else:
@@ -34,8 +35,15 @@ def run(cmd: list[str], capture: bool = False) -> str:
         print(f"    ERROR: '{' '.join(cmd[:2])}' failed with return code {result.returncode}")
         if capture:
             print(result.stdout)
+        if not exit_on_error:
+            raise subprocess.CalledProcessError(result.returncode, cmd)
         sys.exit(result.returncode)
     return result.stdout if capture else ""
+
+
+def colmap_has_cuda() -> bool:
+    """True if the colmap binary was built with CUDA (its banner reads 'COLMAP x.y.z (... with CUDA ...)')."""
+    return "with CUDA" in shell_output(["colmap", "help"]).splitlines()[0]
 
 
 def shell_output(cmd: list[str]) -> str:

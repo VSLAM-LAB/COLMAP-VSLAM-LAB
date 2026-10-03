@@ -13,6 +13,7 @@ command_style 'python' (--key value). Stages, each in its own module:
   colmap_matcher.run_matcher      database, feature extraction (masks optional), exhaustive / sequential matching
   colmap_mapper.run_mapper        COLMAP incremental or GLOMAP global mapping, best sub-model, TXT export
   colmap_to_vslamlab              <exp_folder>/<exp_id>_KeyFrameTrajectory.csv from images.txt
+  colmap_dense.run_dense          (dense=1) undistort, patch match, fusion -> <exp_id>_dense.ply, optional mesher -> <exp_id>_mesh.ply
 With verbose=1 the best sub-model is opened in the colmap gui afterwards.
 """
 
@@ -24,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from colmap_dense import MESHERS, run_dense  # noqa: E402
 from colmap_matcher import run_matcher  # noqa: E402
 from colmap_mapper import run_mapper  # noqa: E402
 from colmap_to_vslamlab import colmap_to_vslamlab  # noqa: E402
@@ -50,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--optimize_intrinsics", type=int, default=1)
     parser.add_argument("--dense", type=int, default=0)
     parser.add_argument("--dense_max_image_size", type=int, default=1600)
-    parser.add_argument("--mesher", type=str, default="none")
+    parser.add_argument("--mesher", type=str, default="none", choices=list(MESHERS))
     # Not exposed as baseline parameters
     parser.add_argument("--use_gpu", type=int, default=1)
     parser.add_argument("--camera_name", type=str, default="rgb_0")
@@ -99,8 +101,9 @@ def main() -> None:
     # Convert COLMAP outputs to a format suitable for VSLAM-LAB
     colmap_to_vslamlab(args.exp_folder, exp_id, args.rgb_csv, args.camera_name)
 
+    # Dense reconstruction (optional, after the trajectory so a dense problem never costs it)
     if args.dense == 1:
-        print(f"\n    WARNING: dense={args.dense} (mesher={args.mesher}) requested, but the dense stage is not wired yet; skipping")
+        run_dense(args.exp_folder, exp_id, exp_folder_colmap, best_model, rgb_path, args.use_gpu, args.dense_max_image_size, args.mesher)
 
     # Visualization with colmap gui
     if args.verbose == 1:

@@ -14,7 +14,7 @@ creates the COLMAP database, extracts features for the frames listed in the expe
 
 from pathlib import Path
 
-from colmap_utilities import colmap_camera, detect_gpus, run
+from colmap_utilities import Settings, colmap_camera, detect_gpus, run, settings_args
 from create_colmap_image_list import create_colmap_image_list
 from create_colmap_mask_dir import create_colmap_mask_dir
 
@@ -39,8 +39,11 @@ MATCHING_TYPES: dict[str, tuple[str, str]] = {
 
 
 def run_matcher(sequence_path: Path, exp_folder_colmap: Path, rgb_path: Path, rgb_csv: Path, calibration_yaml: Path,
-                camera_name: str, matcher_type: str, matching_type: str, use_gpu: int, use_mask: int) -> Path:
-    """Build <exp_folder_colmap>/colmap_database.db with features and matches; returns its path."""
+                camera_name: str, matcher_type: str, matching_type: str, use_gpu: int, use_mask: int,
+                settings: Settings | None = None) -> Path:
+    """Build <exp_folder_colmap>/colmap_database.db with features and matches; returns its path.
+    settings: the [feature_extractor] / [matcher] sections of the settings yaml (colmap_utilities.load_settings)."""
+    settings = settings or {}
     print("\nExecuting colmap_matcher ...")
 
     if matching_type not in MATCHING_TYPES:
@@ -84,6 +87,10 @@ def run_matcher(sequence_path: Path, exp_folder_colmap: Path, rgb_path: Path, rg
     else:
         print(f"        mask: disabled (use_mask={use_mask})")
 
+    extractor_explicit = ["ImageReader.camera_model", "ImageReader.single_camera", "ImageReader.single_camera_per_folder",
+                          "ImageReader.camera_params", "ImageReader.camera_mask_path", "ImageReader.mask_path",
+                          "FeatureExtraction.type", "FeatureExtraction.use_gpu", "FeatureExtraction.gpu_index",
+                          "FeatureExtraction.num_threads"]
     run(["colmap", "feature_extractor",
          "--database_path", str(database),
          "--image_path", str(rgb_path),
@@ -95,18 +102,22 @@ def run_matcher(sequence_path: Path, exp_folder_colmap: Path, rgb_path: Path, rg
          "--FeatureExtraction.use_gpu", str(use_gpu),
          "--FeatureExtraction.gpu_index", gpu_index_list,
          "--FeatureExtraction.num_threads", str(num_threads),
-         *camera_params_args, *mask_args])
+         *camera_params_args, *mask_args,
+         *settings_args(settings, "feature_extractor", "feature_extractor", extractor_explicit)])
 
     matching_args = ["--database_path", str(database),
                      "--FeatureMatching.type", feature_matching_type,
                      "--FeatureMatching.use_gpu", str(use_gpu),
                      "--FeatureMatching.gpu_index", gpu_index_list,
                      "--FeatureMatching.num_threads", str(num_threads)]
+    matcher_explicit = ["FeatureMatching.type", "FeatureMatching.use_gpu", "FeatureMatching.gpu_index", "FeatureMatching.num_threads",
+                        "SequentialMatching.loop_detection", "SequentialMatching.vocab_tree_path"]
 
     if matcher_type == "exhaustive":
         print(f"    colmap exhaustive_matcher ({feature_matching_type}) ...")
         print(f"        gpu_index: {gpu_index_list}")
-        run(["colmap", "exhaustive_matcher", *matching_args])
+        run(["colmap", "exhaustive_matcher", *matching_args,
+             *settings_args(settings, "matcher", "exhaustive_matcher", matcher_explicit)])
     elif matcher_type == "sequential":
         # Loop detection uses COLMAP's default vocabulary tree for the feature type (a FAISS index
         # per SIFT / ALIKED / LoMa, auto-downloaded once into ~/.cache/colmap). The legacy
@@ -115,7 +126,8 @@ def run_matcher(sequence_path: Path, exp_folder_colmap: Path, rgb_path: Path, rg
         print(f"        Vocabulary Tree: COLMAP default for {feature_extraction_type} (cached in ~/.cache/colmap)")
         print(f"        gpu_index: {gpu_index_list}")
         run(["colmap", "sequential_matcher", *matching_args,
-             "--SequentialMatching.loop_detection", "1"])
+             "--SequentialMatching.loop_detection", "1",
+             *settings_args(settings, "matcher", "sequential_matcher", matcher_explicit)])
     else:
         raise SystemExit(f"Unknown matcher_type: {matcher_type}")
 

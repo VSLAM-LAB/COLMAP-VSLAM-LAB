@@ -15,7 +15,7 @@ images and exports it as TXT into the colmap folder. Called by vslamlab_colmap.p
 import re
 from pathlib import Path
 
-from colmap_utilities import colmap_camera, run
+from colmap_utilities import Settings, colmap_camera, run, settings_args
 
 
 def registered_images(model_dir: Path) -> int:
@@ -43,9 +43,11 @@ def select_best_model(exp_folder_colmap: Path) -> tuple[Path, int]:
 
 
 def run_mapper(exp_folder_colmap: Path, rgb_path: Path, calibration_yaml: Path, camera_name: str,
-               mapper_type: str, optimize_intrinsics: int) -> Path:
-    """Reconstruct from <exp_folder_colmap>/colmap_database.db; returns the best sub-model folder."""
+               mapper_type: str, optimize_intrinsics: int, settings: Settings | None = None) -> Path:
+    """Reconstruct from <exp_folder_colmap>/colmap_database.db; returns the best sub-model folder.
+    settings: the [mapper] section of the settings yaml (Mapper_* keys reach mapper, GlobalMapper_* keys glomap)."""
     print("Executing colmap_mapper ...")
+    settings = settings or {}
 
     calibration_model, _, _ = colmap_camera(calibration_yaml, camera_name)
     print(f"        camera model : {calibration_model}")
@@ -70,13 +72,15 @@ def run_mapper(exp_folder_colmap: Path, rgb_path: Path, calibration_yaml: Path, 
     else:
         print("    colmap mapper (COLMAP) ...")
         command, prefix = "mapper", "Mapper"
+    explicit = [f"{prefix}.ba_refine_focal_length", f"{prefix}.ba_refine_principal_point", f"{prefix}.ba_refine_extra_params"]
     run(["colmap", command,
          "--database_path", str(database),
          "--image_path", str(rgb_path),
          "--output_path", str(exp_folder_colmap),
          f"--{prefix}.ba_refine_focal_length", ba_refine_focal_length,
          f"--{prefix}.ba_refine_principal_point", ba_refine_principal_point,
-         f"--{prefix}.ba_refine_extra_params", ba_refine_extra_params])
+         f"--{prefix}.ba_refine_extra_params", ba_refine_extra_params,
+         *settings_args(settings, "mapper", command, explicit)])
 
     best_model, best_num_images = select_best_model(exp_folder_colmap)
 

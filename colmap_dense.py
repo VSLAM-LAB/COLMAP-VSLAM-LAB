@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-from colmap_utilities import colmap_has_cuda, detect_gpus, run
+from colmap_utilities import Settings, colmap_has_cuda, detect_gpus, run, settings_args
 
 MESHERS = ('none', 'delaunay', 'poisson', 'advancing_front')
 GUI_MODEL_DIR = "sparse_fused"  # synthetic model (fused points as points3D) for `colmap gui`, see write_gui_model
@@ -166,10 +166,13 @@ def write_gui_model(dense_dir: Path, fused_ply: Path) -> Path:
 
 
 def run_dense(exp_folder: Path, exp_id: str, exp_folder_colmap: Path, best_model: Path, rgb_path: Path,
-              use_gpu: int, max_image_size: int, mesher: str, gui_model: bool = False) -> Path | None:
+              use_gpu: int, max_image_size: int, mesher: str, gui_model: bool = False,
+              settings: Settings | None = None) -> Path | None:
     """Dense pipeline on best_model; with gui_model=True also writes the synthetic model for `colmap gui`
-    and returns its folder (None when the dense stage was skipped or failed)."""
+    and returns its folder (None when the dense stage was skipped or failed).
+    settings: the [dense] section of the settings yaml, forwarded to each dense command it applies to."""
     print("\nExecuting colmap_dense ...")
+    settings = settings or {}
     if mesher not in MESHERS:
         print(f"    WARNING: unknown mesher '{mesher}' (expected one of {list(MESHERS)}); skipping the dense stage")
         return None
@@ -193,7 +196,8 @@ def run_dense(exp_folder: Path, exp_id: str, exp_folder_colmap: Path, best_model
              "--input_path", str(best_model),
              "--output_path", str(dense_dir),
              "--output_type", "COLMAP",
-             "--max_image_size", str(max_image_size)], exit_on_error=False)
+             "--max_image_size", str(max_image_size),
+             *settings_args(settings, "dense", "image_undistorter", ["output_type", "max_image_size"])], exit_on_error=False)
 
         print("    colmap patch_match_stereo ...")
         print(f"        gpu_index: {gpu_index_list}")
@@ -202,7 +206,10 @@ def run_dense(exp_folder: Path, exp_id: str, exp_folder_colmap: Path, best_model
              "--workspace_format", "COLMAP",
              "--PatchMatchStereo.max_image_size", str(max_image_size),
              "--PatchMatchStereo.geom_consistency", "1",
-             "--PatchMatchStereo.gpu_index", gpu_index_list], exit_on_error=False)
+             "--PatchMatchStereo.gpu_index", gpu_index_list,
+             *settings_args(settings, "dense", "patch_match_stereo",
+                            ["PatchMatchStereo.max_image_size", "PatchMatchStereo.geom_consistency", "PatchMatchStereo.gpu_index"])],
+            exit_on_error=False)
 
         print("    colmap stereo_fusion ...")
         run(["colmap", "stereo_fusion",
@@ -211,7 +218,9 @@ def run_dense(exp_folder: Path, exp_id: str, exp_folder_colmap: Path, best_model
              "--input_type", "geometric",
              "--output_path", str(fused_ply),
              "--StereoFusion.max_image_size", str(max_image_size),
-             "--StereoFusion.num_threads", str(num_threads)], exit_on_error=False)
+             "--StereoFusion.num_threads", str(num_threads),
+             *settings_args(settings, "dense", "stereo_fusion", ["input_type", "StereoFusion.max_image_size", "StereoFusion.num_threads"])],
+            exit_on_error=False)
         dense_copy = exp_folder / f"{exp_id}_dense.ply"
         shutil.copyfile(fused_ply, dense_copy)
         print(f"        fused point cloud: {fused_ply} ({ply_count(fused_ply, 'vertex')} points)")
@@ -228,13 +237,15 @@ def run_dense(exp_folder: Path, exp_id: str, exp_folder_colmap: Path, best_model
         print(f"    colmap {mesher}_mesher ...")
         if mesher == 'poisson':
             run(["colmap", "poisson_mesher", "--input_path", str(fused_ply), "--output_path", str(mesh_ply),
-                 "--PoissonMeshing.num_threads", str(num_threads)], exit_on_error=False)
+                 "--PoissonMeshing.num_threads", str(num_threads),
+                 *settings_args(settings, "dense", "poisson_mesher", ["PoissonMeshing.num_threads"])], exit_on_error=False)
         elif mesher == 'delaunay':
             run(["colmap", "delaunay_mesher", "--input_path", str(dense_dir), "--input_type", "dense",
-                 "--output_path", str(mesh_ply)], exit_on_error=False)
+                 "--output_path", str(mesh_ply),
+                 *settings_args(settings, "dense", "delaunay_mesher", ["input_type"])], exit_on_error=False)
         else:
-            run(["colmap", "advancing_front_mesher", "--input_path", str(dense_dir), "--output_path", str(mesh_ply)],
-                exit_on_error=False)
+            run(["colmap", "advancing_front_mesher", "--input_path", str(dense_dir), "--output_path", str(mesh_ply),
+                 *settings_args(settings, "dense", "advancing_front_mesher")], exit_on_error=False)
         mesh_copy = exp_folder / f"{exp_id}_mesh.ply"
         shutil.copyfile(mesh_ply, mesh_copy)
         print(f"        mesh: {mesh_ply} ({ply_count(mesh_ply, 'vertex')} vertices, {ply_count(mesh_ply, 'face')} faces)")

@@ -13,9 +13,11 @@ calibration onto a COLMAP camera model.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Iterable
 
 import pandas as pd
 
@@ -44,6 +46,90 @@ def run(cmd: list[str], capture: bool = False, exit_on_error: bool = True) -> st
 def colmap_has_cuda() -> bool:
     """True if the colmap binary was built with CUDA (its banner reads 'COLMAP x.y.z (... with CUDA ...)')."""
     return "with CUDA" in shell_output(["colmap", "help"]).splitlines()[0]
+
+
+# ---- Settings yaml (vslamlab_colmap_settings.yaml) -> COLMAP command-line options ----
+# The yaml has one section per pipeline stage (feature_extractor, matcher, mapper, dense) and keys of
+# the form <Section>_<param> (e.g. SiftExtraction_peak_threshold), the shape Run/ablations.py edits
+# per run for an experiment's Ablation csv. Each key is forwarded as --<Section>.<param> <value> to the
+# COLMAP commands of its stage, filtered against that command's own option list (`colmap <cmd> -h`),
+# so Mapper_* keys reach the incremental mapper, GlobalMapper_* keys reach glomap, and a key a command
+# does not know (typo, option removed in a newer COLMAP) is a warning rather than a failed command.
+# Options the pipeline sets itself (ba_refine_*, GPU / thread options, ...) keep precedence: a yaml key
+# naming one of them is dropped with a note.
+Settings = dict[str, dict[str, str]]  # section -> {"Section.param": "value"}
+
+_command_options_cache: dict[str, set[str]] = {}
+
+
+def load_settings(settings_yaml: Path | None) -> Settings:
+    if settings_yaml is None or str(settings_yaml) in ("", "None"):
+        return {}
+    if not Path(settings_yaml).is_file():
+        print(f"    WARNING: settings yaml {settings_yaml} not found; running COLMAP on its defaults")
+        return {}
+    import yaml  # local import: only this helper needs it
+    with open(settings_yaml) as f:
+        data = yaml.safe_load(f) or {}
+    settings: Settings = {}
+    for section, entries in data.items():
+        if not isinstance(entries, dict):
+            continue
+        settings[section] = {}
+        for key, value in entries.items():
+            if "_" not in key:
+                print(f"    WARNING: settings key '{key}' in [{section}] is not <Section>_<param>; ignored")
+                continue
+            group, param = key.split("_", 1)
+            if isinstance(value, bool):
+                value = int(value)
+            settings[section][f"{group}.{param}"] = str(value)
+    return settings
+
+
+def command_options(command: str) -> set[str]:
+    """Option names (without --) that `colmap <command>` accepts, from its -h output; cached."""
+    if command not in _command_options_cache:
+        text = shell_output(["colmap", command, "-h"])
+        _command_options_cache[command] = set(re.findall(r"--([A-Za-z0-9_.]+) arg", text))
+    return _command_options_cache[command]
+
+
+# Commands that may run for each settings section; a key that another command of the same stage
+# accepts (SequentialMatching_* during an exhaustive run, GlobalMapper_* during an incremental run) is
+# simply not applicable, only a key none of them knows is warned about.
+STAGE_COMMANDS: dict[str, tuple[str, ...]] = {
+    "feature_extractor": ("feature_extractor",),
+    "matcher": ("exhaustive_matcher", "sequential_matcher"),
+    "mapper": ("mapper", "global_mapper"),
+    "dense": ("image_undistorter", "patch_match_stereo", "stereo_fusion", "poisson_mesher", "delaunay_mesher", "advancing_front_mesher"),
+}
+
+
+def settings_args(settings: Settings, section: str, command: str, explicit: Iterable[str] = ()) -> list[str]:
+    """Command-line tokens for the settings of `section` that `colmap <command>` accepts and the pipeline
+    does not set explicitly; prints what was forwarded or dropped, warns about keys unknown to the stage."""
+    entries = settings.get(section, {})
+    if not entries:
+        return []
+    known, explicit = command_options(command), set(explicit)
+    known_in_stage = set().union(*(command_options(c) for c in STAGE_COMMANDS.get(section, (command,))))
+    args: list[str] = []
+    forwarded, dropped, unknown = [], [], []
+    for option, value in entries.items():
+        if option in explicit:
+            dropped.append(option)
+        elif option in known:
+            args += [f"--{option}", value]
+            forwarded.append(option)
+        elif option not in known_in_stage:
+            unknown.append(option)
+    print(f"        settings [{section}] -> {command}: {len(forwarded)} option(s) forwarded")
+    if dropped:
+        print(f"        settings [{section}] -> {command}: set by the pipeline, yaml value ignored: {dropped}")
+    if unknown:
+        print(f"        WARNING: settings [{section}]: unknown to every {section} command ({', '.join(STAGE_COMMANDS.get(section, (command,)))}), ignored: {unknown}")
+    return args
 
 
 def shell_output(cmd: list[str]) -> str:

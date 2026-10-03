@@ -29,7 +29,7 @@ from colmap_dense import MESHERS, run_dense  # noqa: E402
 from colmap_matcher import MATCHING_TYPES, run_matcher  # noqa: E402
 from colmap_mapper import run_mapper  # noqa: E402
 from colmap_to_vslamlab import colmap_to_vslamlab  # noqa: E402
-from colmap_utilities import rgb_path_from_csv, run  # noqa: E402
+from colmap_utilities import load_settings, rgb_path_from_csv, run  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,9 +94,13 @@ def main() -> None:
 
     rgb_path = rgb_path_from_csv(args.sequence_path, args.rgb_csv, args.camera_name)
 
+    # COLMAP options from the settings yaml (forwarded per stage, see colmap_utilities.settings_args)
+    settings = load_settings(args.settings_yaml)
+
     database = run_matcher(args.sequence_path, exp_folder_colmap, rgb_path, args.rgb_csv, args.calibration_yaml, args.camera_name,
-                           args.matcher_type, args.matching_type, args.use_gpu, args.use_mask)
-    best_model = run_mapper(exp_folder_colmap, rgb_path, args.calibration_yaml, args.camera_name, args.mapper_type, args.optimize_intrinsics)
+                           args.matcher_type, args.matching_type, args.use_gpu, args.use_mask, settings)
+    best_model = run_mapper(exp_folder_colmap, rgb_path, args.calibration_yaml, args.camera_name, args.mapper_type,
+                            args.optimize_intrinsics, settings)
 
     # Convert COLMAP outputs to a format suitable for VSLAM-LAB
     colmap_to_vslamlab(args.exp_folder, exp_id, args.rgb_csv, args.camera_name)
@@ -105,7 +109,7 @@ def main() -> None:
     gui_model, gui_images = best_model, rgb_path
     if args.dense == 1:
         dense_gui_model = run_dense(args.exp_folder, exp_id, exp_folder_colmap, best_model, rgb_path, args.use_gpu,
-                                    args.dense_max_image_size, args.mesher, gui_model=(args.verbose == 1))
+                                    args.dense_max_image_size, args.mesher, gui_model=(args.verbose == 1), settings=settings)
         if dense_gui_model is not None:  # show the fused cloud instead of the sparse points
             gui_model, gui_images = dense_gui_model, exp_folder_colmap / "dense" / "images"
 

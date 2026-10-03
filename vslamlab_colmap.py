@@ -102,12 +102,19 @@ def main() -> None:
     colmap_to_vslamlab(args.exp_folder, exp_id, args.rgb_csv, args.camera_name)
 
     # Dense reconstruction (optional, after the trajectory so a dense problem never costs it)
+    gui_model, gui_images = best_model, rgb_path
     if args.dense == 1:
-        run_dense(args.exp_folder, exp_id, exp_folder_colmap, best_model, rgb_path, args.use_gpu, args.dense_max_image_size, args.mesher)
+        dense_gui_model = run_dense(args.exp_folder, exp_id, exp_folder_colmap, best_model, rgb_path, args.use_gpu,
+                                    args.dense_max_image_size, args.mesher, gui_model=(args.verbose == 1))
+        if dense_gui_model is not None:  # show the fused cloud instead of the sparse points
+            gui_model, gui_images = dense_gui_model, exp_folder_colmap / "dense" / "images"
 
     # Visualization with colmap gui
     if args.verbose == 1:
-        run(["colmap", "gui", "--import_path", str(best_model), "--database_path", str(database), "--image_path", str(rgb_path)])
+        mesh_ply = args.exp_folder / f"{exp_id}_mesh.ply"
+        if mesh_ply.is_file():
+            print(f"\n    colmap gui: to see the mesh, use File > Import model from... (or drag it in): {mesh_ply}")
+        run(["colmap", "gui", "--import_path", str(gui_model), "--database_path", str(database), "--image_path", str(gui_images)])
 
 
 if __name__ == "__main__":

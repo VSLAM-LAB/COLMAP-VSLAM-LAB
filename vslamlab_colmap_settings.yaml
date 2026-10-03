@@ -1,22 +1,53 @@
+# COLMAP options forwarded by Baselines/colmap/vslamlab_colmap.py (see colmap_utilities.settings_args).
+# One section per pipeline stage; keys are <Section>_<param> and become --<Section>.<param> <value> on the
+# COLMAP commands of that stage (feature_extractor; exhaustive_matcher / sequential_matcher; mapper /
+# global_mapper; image_undistorter / patch_match_stereo / stereo_fusion / *_mesher), each filtered against
+# the command's own option list. Options the pipeline sets from experiment parameters (ba_refine_*,
+# use_gpu, gpu_index, num_threads, loop_detection, vocab_tree_path, dense image sizes, ...) are not read
+# from here. Any other COLMAP option can be added as a new key. Values below are the COLMAP 4.2.1 defaults.
+# An experiment's Ablation csv edits these per run as <section>.<key> (Run/ablations.py).
+
 feature_extractor:
   SiftExtraction_num_octaves: 4
   SiftExtraction_octave_resolution: 3
-  SiftExtraction_peak_threshold: 0.0066666666666666671
-  SiftExtraction_edge_threshold: 10.0
+  SiftExtraction_peak_threshold: 0.006666666666666667
+  SiftExtraction_edge_threshold: 10
   SiftExtraction_dsp_min_scale: 0.1666666666666666
-  SiftExtraction_dsp_max_scale: 3.0
+  SiftExtraction_dsp_max_scale: 3
   SiftExtraction_dsp_num_scales: 10
+  SiftExtraction_max_num_features: 8192
+  SiftExtraction_first_octave: -1
+  SiftExtraction_upright: 0
+  SiftExtraction_domain_size_pooling: 0
+  SiftExtraction_estimate_affine_shape: 0
+  AlikedExtraction_max_num_features: 2048
+  AlikedExtraction_min_score: 0.2
+  LomaExtraction_max_num_features: 2048
+  LomaExtraction_min_score: 0
+  FeatureExtraction_max_image_size: -1
 
 matcher:
-  SiftMatching_max_ratio: 0.80000000000000004
-  SiftMatching_max_distance: 0.69999999999999996
+  SiftMatching_max_ratio: 0.8
+  SiftMatching_max_distance: 0.7
   TwoViewGeometry_min_num_inliers: 15
-  TwoViewGeometry_max_error: 4.0
+  TwoViewGeometry_max_error: 4
   TwoViewGeometry_confidence: 0.999
-  TwoViewGeometry_min_inlier_ratio: 0.25
+  TwoViewGeometry_min_inlier_ratio: 0
   SequentialMatching_overlap: 10
-  SequentialMatching_quadratic_overlap: 1 
+  SequentialMatching_quadratic_overlap: 1
   ExhaustiveMatching_block_size: 50
+  SiftMatching_cross_check: 1
+  SiftMatching_lightglue_min_score: 0.1
+  AlikedMatching_lightglue_min_score: 0.1
+  LomaMatching_min_score: 0.1
+  FeatureMatching_max_num_matches: 32768
+  FeatureMatching_guided_matching: 0
+  TwoViewGeometry_max_num_trials: 10000
+  SequentialMatching_loop_detection_period: 10
+  SequentialMatching_loop_detection_num_images: 50
+  SequentialMatching_loop_detection_num_nearest_neighbors: 1
+  SequentialMatching_loop_detection_min_index_distance: 0
+  SequentialMatching_loop_detection_max_num_features: -1
 
 mapper:
   Mapper_min_num_matches: 15
@@ -30,33 +61,26 @@ mapper:
   Mapper_init_num_trials: 200
   Mapper_extract_colors: 1
   Mapper_num_threads: -1
-  Mapper_min_focal_length_ratio: 0.10000000000000001
+  Mapper_min_focal_length_ratio: 0.1
   Mapper_max_focal_length_ratio: 10
   Mapper_max_extra_param: 1
-  Mapper_ba_refine_focal_length: 1
-  Mapper_ba_refine_principal_point: 0
-  Mapper_ba_refine_extra_params: 1
   Mapper_ba_local_num_images: 6
   Mapper_ba_local_function_tolerance: 0
-  Mapper_ba_local_max_num_iterations: 25
-  Mapper_ba_global_images_ratio: 1.1000000000000001
-  Mapper_ba_global_points_ratio: 1.1000000000000001
-  Mapper_ba_global_images_freq: 500
+  Mapper_ba_local_max_num_iterations: -1
+  Mapper_ba_global_points_ratio: 1.1
   Mapper_ba_global_points_freq: 250000
   Mapper_ba_global_function_tolerance: 0
-  Mapper_ba_global_max_num_iterations: 50
+  Mapper_ba_global_max_num_iterations: -1
   Mapper_ba_global_max_refinements: 5
-  Mapper_ba_global_max_refinement_change: 0.00050000000000000001
+  Mapper_ba_global_max_refinement_change: 0.0005
   Mapper_ba_local_max_refinements: 2
   Mapper_ba_local_max_refinement_change: 0.001
   Mapper_ba_use_gpu: 0
   Mapper_ba_gpu_index: -1
   Mapper_ba_min_num_residuals_for_cpu_multi_threading: 50000
-  Mapper_snapshot_images_freq: 0
-  Mapper_fix_existing_images: 0
   Mapper_init_min_num_inliers: 100
   Mapper_init_max_error: 4
-  Mapper_init_max_forward_motion: 0.94999999999999996
+  Mapper_init_max_forward_motion: 0.95
   Mapper_init_min_tri_angle: 16
   Mapper_init_max_reg_trials: 2
   Mapper_abs_pose_max_error: 12
@@ -65,7 +89,6 @@ mapper:
   Mapper_filter_max_reproj_error: 4
   Mapper_filter_min_tri_angle: 1.5
   Mapper_max_reg_trials: 3
-  Mapper_local_ba_min_tri_angle: 6
   Mapper_tri_max_transitivity: 1
   Mapper_tri_create_max_angle_error: 2
   Mapper_tri_continue_max_angle_error: 2
@@ -73,7 +96,35 @@ mapper:
   Mapper_tri_complete_max_reproj_error: 4
   Mapper_tri_complete_max_transitivity: 5
   Mapper_tri_re_max_angle_error: 5
-  Mapper_tri_re_min_ratio: 0.20000000000000001
+  Mapper_tri_re_min_ratio: 0.2
   Mapper_tri_re_max_trials: 1
   Mapper_tri_min_angle: 1.5
   Mapper_tri_ignore_two_view_tracks: 1
+  GlobalMapper_multiple_models: 1
+  GlobalMapper_min_model_size: 3
+  GlobalMapper_skip_retriangulation: 0
+
+dense:
+  PatchMatchStereo_window_radius: 5
+  PatchMatchStereo_window_step: 1
+  PatchMatchStereo_num_samples: 15
+  PatchMatchStereo_num_iterations: 5
+  PatchMatchStereo_filter: 1
+  PatchMatchStereo_filter_min_ncc: 0.1
+  PatchMatchStereo_filter_min_triangulation_angle: 3
+  PatchMatchStereo_filter_min_num_consistent: 2
+  PatchMatchStereo_cache_size: 32
+  StereoFusion_min_num_pixels: 5
+  StereoFusion_max_num_pixels: 10000
+  StereoFusion_max_traversal_depth: 100
+  StereoFusion_max_reproj_error: 2
+  StereoFusion_max_depth_error: 0.01
+  StereoFusion_max_normal_error: 10
+  StereoFusion_check_num_images: 50
+  PoissonMeshing_point_weight: 1
+  PoissonMeshing_depth: 13
+  PoissonMeshing_trim: 10
+  DelaunayMeshing_max_proj_dist: 20
+  DelaunayMeshing_max_depth_dist: 0.05
+  DelaunayMeshing_quality_regularization: 1
+  AdvancingFrontMeshing_max_edge_length: 1

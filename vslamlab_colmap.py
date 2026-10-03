@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from colmap_dense import MESHERS, run_dense  # noqa: E402
-from colmap_matcher import run_matcher  # noqa: E402
+from colmap_matcher import MATCHING_TYPES, run_matcher  # noqa: E402
 from colmap_mapper import run_mapper  # noqa: E402
 from colmap_to_vslamlab import colmap_to_vslamlab  # noqa: E402
 from colmap_utilities import rgb_path_from_csv, run  # noqa: E402
@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--mode", type=str, default="mono")
     parser.add_argument("--matcher_type", type=str, default="exhaustive", choices=["exhaustive", "sequential"])
-    parser.add_argument("--matching_type", type=str, default="sift_bruteforce")
+    parser.add_argument("--matching_type", type=str, default="sift_bruteforce", choices=list(MATCHING_TYPES))
     parser.add_argument("--mapper_type", type=str, default="colmap", choices=["colmap", "glomap"])
     parser.add_argument("--rgb_max", type=int, default=None, help="consumed by the run pipeline; accepted here because it is forwarded")
     parser.add_argument("--use_mask", type=int, default=0)

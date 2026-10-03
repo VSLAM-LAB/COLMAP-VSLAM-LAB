@@ -18,12 +18,23 @@ from colmap_utilities import colmap_camera, detect_gpus, run
 from create_colmap_image_list import create_colmap_image_list
 from create_colmap_mask_dir import create_colmap_mask_dir
 
-# matching_type -> (FeatureExtraction.type, FeatureMatching.type)
+# matching_type -> (FeatureExtraction.type, FeatureMatching.type), named <extractor>_<matcher>.
+# ALIKED and LoMa are ONNX models that COLMAP downloads once into ~/.cache/colmap. LoMa (ECCV26,
+# DeDoDe architecture): LOMA_B is a 256-dim descriptor with dedicated matchers B (LightGlue-sized),
+# R (rotation-augmented), L and G (larger, slower, more accurate); LOMA_B128 is a lighter 128-dim
+# descriptor with its own B128 matcher; LOMA_BRUTEFORCE (cosine similarity) takes either.
 MATCHING_TYPES: dict[str, tuple[str, str]] = {
     'sift_bruteforce': ('SIFT', 'SIFT_BRUTEFORCE'),
     'sift_lightglue': ('SIFT', 'SIFT_LIGHTGLUE'),
     'aliked_bruteforce': ('ALIKED_N16ROT', 'ALIKED_BRUTEFORCE'),
     'aliked_lightglue': ('ALIKED_N16ROT', 'ALIKED_LIGHTGLUE'),
+    'loma_b_bruteforce': ('LOMA_B', 'LOMA_BRUTEFORCE'),
+    'loma_b_loma': ('LOMA_B', 'LOMA_B'),
+    'loma_b_loma_r': ('LOMA_B', 'LOMA_R'),
+    'loma_b_loma_l': ('LOMA_B', 'LOMA_L'),
+    'loma_b_loma_g': ('LOMA_B', 'LOMA_G'),
+    'loma_b128_bruteforce': ('LOMA_B128', 'LOMA_BRUTEFORCE'),
+    'loma_b128_loma': ('LOMA_B128', 'LOMA_B128'),
 }
 
 
